@@ -376,6 +376,139 @@ export function createDOM(html = '') {
         return null
       },
 
+      // insertAdjacentHTML / insertAdjacentElement / insertAdjacentText
+      insertAdjacentHTML(position, htmlStr) {
+        const parsed = htmlparser2.parseDocument(htmlStr)
+        const newNodes = parsed.children
+        const parent = node.parent
+        const attach = (n, p) => { n.parent = p; return n }
+
+        if (position === 'beforebegin' && parent) {
+          const idx = parent.children.indexOf(node)
+          parent.children.splice(idx, 0, ...newNodes.map(n => attach(n, parent)))
+        } else if (position === 'afterbegin') {
+          if (!node.children) node.children = []
+          node.children.unshift(...newNodes.map(n => attach(n, node)))
+        } else if (position === 'beforeend') {
+          if (!node.children) node.children = []
+          node.children.push(...newNodes.map(n => attach(n, node)))
+        } else if (position === 'afterend' && parent) {
+          const idx = parent.children.indexOf(node)
+          parent.children.splice(idx + 1, 0, ...newNodes.map(n => attach(n, parent)))
+        }
+      },
+      insertAdjacentElement(position, element) {
+        if (!element || !element._node) return null
+        const newNode = element._node
+        const parent = node.parent
+        if (position === 'beforebegin' && parent) {
+          newNode.parent = parent
+          parent.children.splice(parent.children.indexOf(node), 0, newNode)
+        } else if (position === 'afterbegin') {
+          if (!node.children) node.children = []
+          newNode.parent = node; node.children.unshift(newNode)
+        } else if (position === 'beforeend') {
+          if (!node.children) node.children = []
+          newNode.parent = node; node.children.push(newNode)
+        } else if (position === 'afterend' && parent) {
+          newNode.parent = parent
+          parent.children.splice(parent.children.indexOf(node) + 1, 0, newNode)
+        }
+        return element
+      },
+      insertAdjacentText(position, text) {
+        const textNode = { type: 'text', data: text, parent: null }
+        const parent = node.parent
+        if (position === 'beforebegin' && parent) {
+          textNode.parent = parent
+          parent.children.splice(parent.children.indexOf(node), 0, textNode)
+        } else if (position === 'afterbegin') {
+          if (!node.children) node.children = []
+          textNode.parent = node; node.children.unshift(textNode)
+        } else if (position === 'beforeend') {
+          if (!node.children) node.children = []
+          textNode.parent = node; node.children.push(textNode)
+        } else if (position === 'afterend' && parent) {
+          textNode.parent = parent
+          parent.children.splice(parent.children.indexOf(node) + 1, 0, textNode)
+        }
+      },
+
+      // before() / after() / replaceWith()
+      before(...nodes_) {
+        if (!node.parent) return
+        const idx = node.parent.children.indexOf(node)
+        const toInsert = nodes_.flatMap(n => {
+          if (typeof n === 'string') return [{ type: 'text', data: n, parent: node.parent }]
+          if (n && n._node) { n._node.parent = node.parent; return [n._node] }
+          return []
+        })
+        node.parent.children.splice(idx, 0, ...toInsert)
+      },
+      after(...nodes_) {
+        if (!node.parent) return
+        const idx = node.parent.children.indexOf(node)
+        const toInsert = nodes_.flatMap(n => {
+          if (typeof n === 'string') return [{ type: 'text', data: n, parent: node.parent }]
+          if (n && n._node) { n._node.parent = node.parent; return [n._node] }
+          return []
+        })
+        node.parent.children.splice(idx + 1, 0, ...toInsert)
+      },
+      replaceWith(...nodes_) {
+        if (!node.parent) return
+        const idx = node.parent.children.indexOf(node)
+        const toInsert = nodes_.flatMap(n => {
+          if (typeof n === 'string') return [{ type: 'text', data: n, parent: node.parent }]
+          if (n && n._node) { n._node.parent = node.parent; return [n._node] }
+          return []
+        })
+        node.parent.children.splice(idx, 1, ...toInsert)
+      },
+
+      // toggleAttribute
+      toggleAttribute(name, force) {
+        if (!node.attribs) node.attribs = {}
+        const has = name in node.attribs
+        if (force === true || (!has && force === undefined)) {
+          node.attribs[name] = ''; return true
+        } else if (force === false || (has && force === undefined)) {
+          delete node.attribs[name]; return false
+        }
+        return false
+      },
+
+      // isConnected — true kalau ada di DOM tree
+      get isConnected() {
+        let current = node
+        while (current.parent) current = current.parent
+        return current.type === 'root'
+      },
+
+      // ownerDocument — referensi ke document
+      get ownerDocument() { return document },
+
+      // animate (stub — banyak framework modern pakai ini)
+      animate(keyframes, options) {
+        return {
+          finished: Promise.resolve(),
+          ready: Promise.resolve(),
+          play: () => {}, pause: () => {}, cancel: () => {},
+          finish: () => {}, reverse: () => {}, commitStyles: () => {},
+          persist: () => {}, currentTime: 0, playbackRate: 1,
+          playState: 'finished', effect: null, timeline: null,
+          onfinish: null, oncancel: null,
+        }
+      },
+
+      // contentEditable
+      get contentEditable() { return node.attribs?.contenteditable || 'inherit' },
+      set contentEditable(val) {
+        if (!node.attribs) node.attribs = {}
+        node.attribs.contenteditable = val
+      },
+      get isContentEditable() { return node.attribs?.contenteditable === 'true' },
+
       // offsetParent dll (jQuery butuh ini gak throw)
       get offsetParent() { return null },
       get offsetTop() { return 0 },

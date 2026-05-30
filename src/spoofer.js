@@ -158,6 +158,201 @@ export function createBrowserEnv(options = {}) {
     queueMicrotask,
     structuredClone: (obj) => JSON.parse(JSON.stringify(obj)),
 
+    // ─── Event System ────────────────────────────────────────
+    // Event constructor
+    Event: class Event {
+      constructor(type, init = {}) {
+        this.type = type
+        this.bubbles = init.bubbles || false
+        this.cancelable = init.cancelable || false
+        this.composed = init.composed || false
+        this.defaultPrevented = false
+        this.target = null
+        this.currentTarget = null
+        this.timeStamp = Date.now()
+        this.isTrusted = false
+      }
+      preventDefault() { this.defaultPrevented = true }
+      stopPropagation() {}
+      stopImmediatePropagation() {}
+    },
+
+    // CustomEvent constructor
+    CustomEvent: class CustomEvent {
+      constructor(type, init = {}) {
+        this.type = type
+        this.detail = init.detail ?? null
+        this.bubbles = init.bubbles || false
+        this.cancelable = init.cancelable || false
+        this.defaultPrevented = false
+        this.target = null
+        this.currentTarget = null
+        this.timeStamp = Date.now()
+        this.isTrusted = false
+      }
+      preventDefault() { this.defaultPrevented = true }
+      stopPropagation() {}
+      stopImmediatePropagation() {}
+    },
+
+    // ─── MutationObserver ────────────────────────────────────
+    // React, Vue, dan hampir semua framework pakai ini
+    MutationObserver: class MutationObserver {
+      constructor(callback) {
+        this._callback = callback
+        this._targets = []
+      }
+      observe(target, options = {}) {
+        this._targets.push({ target, options })
+      }
+      disconnect() {
+        this._targets = []
+      }
+      takeRecords() {
+        return []
+      }
+    },
+
+    // ─── IntersectionObserver ────────────────────────────────
+    // Lazy loading, infinite scroll
+    IntersectionObserver: class IntersectionObserver {
+      constructor(callback, options = {}) {
+        this._callback = callback
+        this._options = options
+        this._targets = []
+      }
+      observe(target) {
+        this._targets.push(target)
+        // Langsung trigger callback dengan entry "visible" biar script gak hang nunggu
+        try {
+          this._callback([{
+            target,
+            isIntersecting: true,
+            intersectionRatio: 1,
+            boundingClientRect: { top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 },
+            intersectionRect: { top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 },
+            rootBounds: null,
+            time: Date.now(),
+          }], this)
+        } catch {}
+      }
+      unobserve(target) {
+        this._targets = this._targets.filter(t => t !== target)
+      }
+      disconnect() {
+        this._targets = []
+      }
+      takeRecords() {
+        return []
+      }
+    },
+
+    // ─── ResizeObserver ──────────────────────────────────────
+    ResizeObserver: class ResizeObserver {
+      constructor(callback) {
+        this._callback = callback
+        this._targets = []
+      }
+      observe(target, options = {}) {
+        this._targets.push(target)
+        // Trigger sekali dengan ukuran 0 biar gak hang
+        try {
+          this._callback([{
+            target,
+            contentRect: { top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 },
+            borderBoxSize: [{ inlineSize: 0, blockSize: 0 }],
+            contentBoxSize: [{ inlineSize: 0, blockSize: 0 }],
+            devicePixelContentBoxSize: [{ inlineSize: 0, blockSize: 0 }],
+          }], this)
+        } catch {}
+      }
+      unobserve(target) {
+        this._targets = this._targets.filter(t => t !== target)
+      }
+      disconnect() {
+        this._targets = []
+      }
+    },
+
+    // ─── matchMedia ──────────────────────────────────────────
+    // Responsive JS, dark mode checks
+    matchMedia: (query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+    }),
+
+    // ─── getComputedStyle ────────────────────────────────────
+    // jQuery dan framework lain nge-call ini waktu init
+    getComputedStyle: () => new Proxy({}, {
+      get: (_, prop) => {
+        if (prop === 'getPropertyValue') return () => ''
+        if (prop === 'setProperty') return () => {}
+        if (prop === 'removeProperty') return () => {}
+        if (prop === 'length') return 0
+        if (prop === 'cssText') return ''
+        return ''
+      }
+    }),
+
+    // ─── WebSocket (stub) ────────────────────────────────────
+    WebSocket: class WebSocket {
+      constructor(url, protocols) {
+        this.url = url
+        this.readyState = 3 // CLOSED — kita gak beneran connect
+        this.CONNECTING = 0; this.OPEN = 1; this.CLOSING = 2; this.CLOSED = 3
+        this.onopen = null; this.onclose = null; this.onmessage = null; this.onerror = null
+        setTimeout(() => this.onclose?.({ code: 1006, reason: 'Kitsune: WebSocket not supported', wasClean: false }), 0)
+      }
+      send() {}
+      close() {}
+      addEventListener() {}
+      removeEventListener() {}
+    },
+
+    // ─── Worker / SharedWorker (stub) ────────────────────────
+    Worker: class Worker {
+      constructor(url) { this.url = url; this.onmessage = null; this.onerror = null }
+      postMessage() {}
+      terminate() {}
+      addEventListener() {}
+      removeEventListener() {}
+    },
+    SharedWorker: class SharedWorker {
+      constructor(url) { this.url = url; this.port = { postMessage: () => {}, onmessage: null, start: () => {} } }
+      addEventListener() {}
+      removeEventListener() {}
+    },
+
+    // ─── indexedDB (stub) ────────────────────────────────────
+    indexedDB: {
+      open: () => {
+        const req = { result: null, error: null, onupgradeneeded: null, onsuccess: null, onerror: null }
+        setTimeout(() => req.onerror?.({ target: req }), 0)
+        return req
+      },
+      deleteDatabase: () => ({ onsuccess: null, onerror: null }),
+    },
+
+    // ─── caches (Service Worker Cache API stub) ──────────────
+    caches: {
+      open: async () => ({
+        match: async () => undefined,
+        put: async () => {},
+        delete: async () => false,
+        keys: async () => [],
+      }),
+      match: async () => undefined,
+      has: async () => false,
+      delete: async () => false,
+      keys: async () => [],
+    },
+
   // JSON, Math, dll
     JSON,
     Math,

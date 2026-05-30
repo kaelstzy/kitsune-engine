@@ -276,5 +276,77 @@ export async function loadPage(url, options = {}) {
     selectAll(selector) {
       return document.querySelectorAll(selector)
     },
+
+    // Helper: extract JSON yang di-embed di page
+    // result.json()        → array semua JSON yang ketemu
+    // result.json('key')   → cari object yang punya key tertentu
+    // result.json(/regex/) → cari pake regex di raw script text
+    json(target) {
+      const scripts = document.querySelectorAll('script')
+      const found = []
+
+      for (const script of scripts) {
+        const text = (script.textContent || '').trim()
+        if (!text) continue
+
+        // Skip script yang jelas bukan JSON (panjang < 10 atau ada syntax JS)
+        const looksLikeJson = text.startsWith('{') || text.startsWith('[')
+
+        // Coba beberapa pattern umum embed JSON di page
+        const candidates = []
+
+        if (looksLikeJson) {
+          // Pure JSON script
+          candidates.push(text)
+        }
+
+        // Pattern: window.X = {...} atau window['X'] = {...}
+        const windowAssign = text.matchAll(/window\[?['"]?([\w.]+)['"]?\]?\s*=\s*(\{[\s\S]*?\});?\s*(?:window|var|let|const|$)/g)
+        for (const m of windowAssign) candidates.push(m[2])
+
+        // Pattern: var/let/const X = {...} di top level
+        const varAssign = text.matchAll(/(?:var|let|const)\s+\w+\s*=\s*(\{[\s\S]*?\});/g)
+        for (const m of varAssign) candidates.push(m[1])
+
+        // Pattern: JSON string langsung (kayak TikTok __DEFAULT_SCOPE__)
+        if (text.includes('"__DEFAULT_SCOPE__"') ||
+            text.includes('"__NEXT_DATA__"') ||
+            text.includes('"__NUXT__"') ||
+            text.includes('"__INITIAL_STATE__"') ||
+            text.includes('"__APP_STATE__')) {
+          candidates.push(text)
+        }
+
+        for (const candidate of candidates) {
+          try {
+            const parsed = JSON.parse(candidate)
+
+            // Filter by target kalau dikasih
+            if (target === undefined) {
+              found.push(parsed)
+            } else if (typeof target === 'string') {
+              // Cari key di top level atau satu level di dalamnya
+              if (target in parsed) {
+                found.push(parsed[target])
+              } else {
+                for (const val of Object.values(parsed)) {
+                  if (val && typeof val === 'object' && target in val) {
+                    found.push(val[target])
+                  }
+                }
+              }
+            } else if (target instanceof RegExp) {
+              if (target.test(candidate)) found.push(parsed)
+            }
+          } catch {}
+        }
+      }
+
+      // Kalau target dikasih, return first match atau null
+      if (target !== undefined) return found[0] ?? null
+
+      // Tanpa target, return semua yang ketemu
+      return found
+    },
   }
 }
