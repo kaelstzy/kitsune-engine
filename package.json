@@ -3,17 +3,23 @@
   "version": "0.1.0",
   "description": "Lightweight JS execution engine - load pages, run JS, get DOM. No browser needed.",
   "main": "src/index.js",
-  "type": "module",
-  "scripts": {
-    "test": "node test/basic.test.js"
+  "exports": {
+    ".": "./src/index.js"
   },
-  "keywords": ["scraping", "headless", "js-engine", "dom", "lightweight", "kitsune"],
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules test/basic.test.js",
+    "test:new": "node --experimental-vm-modules test/new-apis.test.js"
+  },
+  "keywords": ["scraping", "headless", "js-engine", "dom", "lightweight", "kitsune", "puppeteer-alternative"],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "htmlparser2": "^9.1.0",
     "css-select": "^5.1.0",
-    "dom-serializer": "^2.0.0",
-    "node-fetch": "^3.3.2"
+    "dom-serializer": "^2.0.0"
   }
 }
