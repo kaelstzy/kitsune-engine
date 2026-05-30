@@ -1,0 +1,19 @@
+{
+  "name": "kitsune-engine",
+  "version": "0.1.0",
+  "description": "Lightweight JS execution engine - load pages, run JS, get DOM. No browser needed.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test/basic.test.js"
+  },
+  "keywords": ["scraping", "headless", "js-engine", "dom", "lightweight", "kitsune"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "htmlparser2": "^9.1.0",
+    "css-select": "^5.1.0",
+    "dom-serializer": "^2.0.0",
+    "node-fetch": "^3.3.2"
+  }
+}
