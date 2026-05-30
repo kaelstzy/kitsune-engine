@@ -83,6 +83,13 @@ export function createDOM(html = '') {
       hasAttribute(name) {
         return name in (node.attribs || {})
       },
+      getAttributeNode(name) {
+        if (!this.hasAttribute(name)) return null
+        return { name, value: node.attribs[name], specified: true }
+      },
+      getAttributeNames() {
+        return Object.keys(node.attribs || {})
+      },
 
       get id() { return node.attribs?.id || '' },
       set id(val) {
@@ -131,12 +138,32 @@ export function createDOM(html = '') {
         if (!node.attribs) node.attribs = {}
         node.attribs.value = val
       },
+      get type() { return node.attribs?.type || '' },
+      get name() { return node.attribs?.name || '' },
 
-      // Style (simulasi sederhana)
+      // Style (simulasi sederhana — jQuery butuh ini)
       style: new Proxy({}, {
-        get: () => '',
+        get: (_, prop) => {
+          if (prop === 'cssText') return ''
+          if (prop === 'setProperty') return () => {}
+          if (prop === 'removeProperty') return () => {}
+          if (prop === 'getPropertyValue') return () => ''
+          return ''
+        },
         set: () => true
       }),
+
+      // Dataset
+      get dataset() {
+        const data = {}
+        for (const [key, val] of Object.entries(node.attribs || {})) {
+          if (key.startsWith('data-')) {
+            const camel = key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+            data[camel] = val
+          }
+        }
+        return data
+      },
 
       // DOM traversal
       get parentElement() {
@@ -152,11 +179,22 @@ export function createDOM(html = '') {
       get childNodes() {
         return (node.children || []).map(wrapElement)
       },
+      get childElementCount() {
+        return (node.children || []).filter(c => c.type === 'tag').length
+      },
       get firstChild() {
         return node.children?.[0] ? wrapElement(node.children[0]) : null
       },
       get lastChild() {
         const kids = node.children || []
+        return kids.length ? wrapElement(kids[kids.length - 1]) : null
+      },
+      get firstElementChild() {
+        const kids = (node.children || []).filter(c => c.type === 'tag')
+        return kids.length ? wrapElement(kids[0]) : null
+      },
+      get lastElementChild() {
+        const kids = (node.children || []).filter(c => c.type === 'tag')
         return kids.length ? wrapElement(kids[kids.length - 1]) : null
       },
       get nextSibling() {
@@ -171,6 +209,26 @@ export function createDOM(html = '') {
         const idx = siblings.indexOf(node)
         return idx > 0 ? wrapElement(siblings[idx - 1]) : null
       },
+      get nextElementSibling() {
+        if (!node.parent) return null
+        const siblings = node.parent.children || []
+        let idx = siblings.indexOf(node) + 1
+        while (idx < siblings.length) {
+          if (siblings[idx].type === 'tag') return wrapElement(siblings[idx])
+          idx++
+        }
+        return null
+      },
+      get previousElementSibling() {
+        if (!node.parent) return null
+        const siblings = node.parent.children || []
+        let idx = siblings.indexOf(node) - 1
+        while (idx >= 0) {
+          if (siblings[idx].type === 'tag') return wrapElement(siblings[idx])
+          idx--
+        }
+        return null
+      },
 
       // Query
       querySelector(sel) {
@@ -180,23 +238,45 @@ export function createDOM(html = '') {
         return findAll(sel, node).map(wrapElement)
       },
       getElementsByTagName(tag) {
+        if (tag === '*') return findAll('*', node).map(wrapElement)
         return findAll(tag, node).map(wrapElement)
       },
       getElementsByClassName(cls) {
         return findAll(`.${cls}`, node).map(wrapElement)
       },
+      getElementsByTagNameNS(ns, tag) {
+        return findAll(tag, node).map(wrapElement)
+      },
 
       // DOM manipulation
       appendChild(child) {
         if (!node.children) node.children = []
-        if (child._node) {
+        if (child && child._node) {
           child._node.parent = node
           node.children.push(child._node)
         }
         return child
       },
+      prepend(...nodes) {
+        if (!node.children) node.children = []
+        for (const child of nodes.reverse()) {
+          if (child && child._node) {
+            child._node.parent = node
+            node.children.unshift(child._node)
+          }
+        }
+      },
+      append(...nodes) {
+        for (const child of nodes) {
+          if (child && child._node) {
+            child._node.parent = node
+            if (!node.children) node.children = []
+            node.children.push(child._node)
+          }
+        }
+      },
       removeChild(child) {
-        if (node.children && child._node) {
+        if (node.children && child && child._node) {
           const idx = node.children.indexOf(child._node)
           if (idx > -1) node.children.splice(idx, 1)
         }
@@ -204,12 +284,27 @@ export function createDOM(html = '') {
       },
       insertBefore(newChild, refChild) {
         if (!node.children) node.children = []
-        if (newChild._node && refChild?._node) {
-          const idx = node.children.indexOf(refChild._node)
-          if (idx > -1) node.children.splice(idx, 0, newChild._node)
-          else node.children.push(newChild._node)
+        if (newChild && newChild._node) {
+          if (refChild && refChild._node) {
+            const idx = node.children.indexOf(refChild._node)
+            if (idx > -1) node.children.splice(idx, 0, newChild._node)
+            else node.children.push(newChild._node)
+          } else {
+            node.children.push(newChild._node)
+          }
+          newChild._node.parent = node
         }
         return newChild
+      },
+      replaceChild(newChild, oldChild) {
+        if (node.children && newChild && newChild._node && oldChild && oldChild._node) {
+          const idx = node.children.indexOf(oldChild._node)
+          if (idx > -1) {
+            newChild._node.parent = node
+            node.children.splice(idx, 1, newChild._node)
+          }
+        }
+        return oldChild
       },
       remove() {
         if (node.parent?.children) {
@@ -218,26 +313,48 @@ export function createDOM(html = '') {
         }
       },
       cloneNode(deep = false) {
-        const clone = JSON.parse(JSON.stringify(node))
-        return wrapElement(clone)
-      },
+  function cloneRaw(n, parent = null) {
+    const c = {
+      type: n.type,
+      name: n.name,
+      data: n.data,
+      attribs: n.attribs ? { ...n.attribs } : {},
+      parent,
+      children: []
+    }
+    if (deep && n.children) {
+      c.children = n.children.map(child => cloneRaw(child, c))
+    }
+    return c
+  }
+  return wrapElement(cloneRaw(node))
+},
+      normalize() {},
 
-      // Events (no-op, kita gak perlu actual events)
+      // Events (no-op)
       addEventListener: () => {},
       removeEventListener: () => {},
       dispatchEvent: () => true,
       click: () => {},
       focus: () => {},
       blur: () => {},
+      submit: () => {},
 
       // Bounding rect (simulasi)
       getBoundingClientRect: () => ({
-        top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, x: 0, y: 0
+        top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, x: 0, y: 0,
+        toJSON: () => ({})
       }),
+      getClientRects: () => [],
+      scrollIntoView: () => {},
+      scrollTo: () => {},
+      scroll: () => {},
 
       // contains
       contains(other) {
-        return other?._node ? node.children?.includes(other._node) ?? false : false
+        if (!other) return false
+        if (other._node === node) return true
+        return other?._node ? (node.children || []).includes(other._node) : false
       },
 
       matches(sel) {
@@ -247,6 +364,34 @@ export function createDOM(html = '') {
           return false
         }
       },
+
+      closest(sel) {
+        let current = node
+        while (current) {
+          try {
+            if (cssSelect.is(current, sel)) return wrapElement(current)
+          } catch {}
+          current = current.parent
+        }
+        return null
+      },
+
+      // offsetParent dll (jQuery butuh ini gak throw)
+      get offsetParent() { return null },
+      get offsetTop() { return 0 },
+      get offsetLeft() { return 0 },
+      get offsetWidth() { return 0 },
+      get offsetHeight() { return 0 },
+      get scrollTop() { return 0 },
+      set scrollTop(_) {},
+      get scrollLeft() { return 0 },
+      set scrollLeft(_) {},
+      get scrollWidth() { return 0 },
+      get scrollHeight() { return 0 },
+      get clientTop() { return 0 },
+      get clientLeft() { return 0 },
+      get clientWidth() { return 0 },
+      get clientHeight() { return 0 },
 
       // Reference ke raw node (internal)
       _node: node,
@@ -275,6 +420,7 @@ export function createDOM(html = '') {
       return wrapElement(findOne(`#${id}`))
     },
     getElementsByTagName(tag) {
+      if (tag === '*') return findAll('*').map(wrapElement)
       return findAll(tag).map(wrapElement)
     },
     getElementsByClassName(cls) {
@@ -283,9 +429,22 @@ export function createDOM(html = '') {
     getElementsByName(name) {
       return findAll(`[name="${name}"]`).map(wrapElement)
     },
+    getElementsByTagNameNS(ns, tag) {
+      return findAll(tag).map(wrapElement)
+    },
 
     // Create elements
     createElement(tag) {
+      const node = {
+        type: 'tag',
+        name: tag.toLowerCase(),
+        attribs: {},
+        children: [],
+        parent: null
+      }
+      return wrapElement(node)
+    },
+    createElementNS(ns, tag) {
       const node = {
         type: 'tag',
         name: tag.toLowerCase(),
@@ -302,6 +461,12 @@ export function createDOM(html = '') {
     createDocumentFragment() {
       const node = { type: 'root', children: [], parent: null }
       return wrapElement(node)
+    },
+    createComment(data) {
+      return wrapElement({ type: 'comment', data, parent: null })
+    },
+    createAttribute(name) {
+      return { name, value: '', specified: true }
     },
 
     // Head & Body
@@ -327,19 +492,43 @@ export function createDOM(html = '') {
     // Cookie
     cookie: '',
 
-    // Ready state
+    // Ready state & metadata
     readyState: 'complete',
     get URL() { return '' },
+    get baseURI() { return '' },
+    nodeType: 9,
+    nodeName: '#document',
+    compatMode: 'CSS1Compat',
+    characterSet: 'UTF-8',
+    charset: 'UTF-8',
+    inputEncoding: 'UTF-8',
+    contentType: 'text/html',
+
+    // jQuery / framework butuh ini
+    defaultView: null,
+    implementation: {
+      hasFeature: () => true,
+      createDocumentType: () => null,
+      createDocument: () => null,
+    },
+
+    // document.write
+    write(html) {
+      const parsed = require !== undefined ? null : null
+      const imp = htmlparser2.parseDocument(html)
+      const body = findOne('body')
+      if (body) {
+        imp.children.forEach(c => { c.parent = body; body.children.push(c) })
+      }
+    },
+    writeln(html) { this.write(html + '') },
+    open() {},
+    close() {},
 
     // Events
     addEventListener: () => {},
     removeEventListener: () => {},
     dispatchEvent: () => true,
-
-    // Serialize balik ke HTML
-    get documentElement() {
-      return wrapElement(dom)
-    },
 
     // Internal
     _dom: dom,

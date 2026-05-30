@@ -130,7 +130,35 @@ export function createBrowserEnv(options = {}) {
     // Console
     console,
 
-    // JSON, Math, dll
+    // Web APIs yang TikTok/React butuhin
+    URLSearchParams,
+    URL,
+    Blob: class Blob {},
+    FormData: class FormData {
+      constructor() { this._data = {} }
+      append(k, v) { this._data[k] = v }
+      get(k) { return this._data[k] }
+    },
+    Headers: class Headers {
+      constructor(init = {}) { this._h = { ...init } }
+      get(k) { return this._h[k.toLowerCase()] ?? null }
+      set(k, v) { this._h[k.toLowerCase()] = v }
+      has(k) { return k.toLowerCase() in this._h }
+      forEach(cb) { Object.entries(this._h).forEach(([k,v]) => cb(v, k)) }
+    },
+    AbortController,
+    AbortSignal,
+    TextEncoder,
+    TextDecoder,
+    crypto: {
+      getRandomValues: (arr) => { arr.fill(Math.floor(Math.random() * 256)); return arr },
+      randomUUID: () => Math.random().toString(36).slice(2),
+      subtle: {}
+    },
+    queueMicrotask,
+    structuredClone: (obj) => JSON.parse(JSON.stringify(obj)),
+
+  // JSON, Math, dll
     JSON,
     Math,
     Date,

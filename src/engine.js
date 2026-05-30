@@ -96,6 +96,7 @@ export async function loadPage(url, options = {}) {
   // Sambungin document ke env
   env.document = document
   document.cookie = cookieJar.get()
+  document.defaultView = env  // jQuery butuh ini buat akses window dari document
 
   // Custom console buat capture logs
   env.console = {
