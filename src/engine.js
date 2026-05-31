@@ -8,6 +8,31 @@ import vm from 'vm'
 import { createDOM } from './dom.js'
 import { createBrowserEnv } from './spoofer.js'
 
+// ─── Internal fetch dengan retry support ─────────────────
+async function fetchWithRetry(url, fetchOptions, options) {
+  const maxRetries = options.retry ?? 0
+  const retryDelay = options.retryDelay ?? 1000
+  let lastError
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        if (options.verbose) console.log(`[kitsune] Retry ${attempt}/${maxRetries} → ${url}`)
+        await new Promise(resolve => setTimeout(resolve, retryDelay))
+      }
+      const response = await fetch(url, fetchOptions)
+      return response
+    } catch (err) {
+      lastError = err
+      if (attempt < maxRetries && options.verbose) {
+        console.log(`[kitsune] Attempt ${attempt + 1} failed: ${err.message}`)
+      }
+    }
+  }
+
+  throw lastError
+}
+
 export async function loadPage(url, options = {}) {
   const startTime = Date.now()
   const logs = []
@@ -24,6 +49,8 @@ export async function loadPage(url, options = {}) {
   // ─── 1. Fetch HTML ───────────────────────────────────────
   const fetchStart = Date.now()
 
+  const method = (options.method || 'GET').toUpperCase()
+
   const headers = {
     'User-Agent': options.userAgent ||
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -38,6 +65,17 @@ export async function loadPage(url, options = {}) {
     ...(options.headers || {})
   }
 
+  // Pasang Content-Type otomatis kalau ada body
+  if (options.body && !headers['Content-Type']) {
+    if (typeof options.body === 'object') {
+      headers['Content-Type'] = 'application/json'
+    } else if (typeof options.body === 'string' && options.body.startsWith('{')) {
+      headers['Content-Type'] = 'application/json'
+    } else {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    }
+  }
+
   // Pasang cookies kalau ada
   if (options.cookies) {
     headers['Cookie'] = options.cookies
@@ -50,14 +88,23 @@ export async function loadPage(url, options = {}) {
   let finalUrl = url
 
   try {
-    response = await fetch(url, {
-      method: 'GET',
+    const fetchOptions = {
+      method,
       headers,
-      redirect: 'follow',
+      redirect: options.followRedirects === false ? 'manual' : 'follow',
       signal: options.timeout
         ? AbortSignal.timeout(options.timeout)
-        : AbortSignal.timeout(30000), // default 30s
-    })
+        : AbortSignal.timeout(30000),
+    }
+
+    // Pasang body kalau ada (POST, PUT, PATCH)
+    if (options.body) {
+      fetchOptions.body = typeof options.body === 'object'
+        ? JSON.stringify(options.body)
+        : options.body
+    }
+
+    response = await fetchWithRetry(url, fetchOptions, options)
 
     statusCode = response.status
     finalUrl = response.url || url
@@ -69,6 +116,10 @@ export async function loadPage(url, options = {}) {
 
     html = await response.text()
   } catch (err) {
+    const isTimeout = err.name === 'TimeoutError' || err.message?.includes('timeout')
+    if (isTimeout) {
+      throw new Error(`Kitsune: Request timed out after ${options.timeout || 30000}ms → ${url}`)
+    }
     throw new Error(`Kitsune: Fetch failed → ${err.message}`)
   }
 
@@ -119,7 +170,6 @@ export async function loadPage(url, options = {}) {
   // fetch di dalam page (buat XHR/fetch calls dari script)
   env.fetch = async (fetchUrl, fetchOpts = {}) => {
     try {
-      // Resolve relative URLs
       const absoluteUrl = fetchUrl.startsWith('http')
         ? fetchUrl
         : new URL(fetchUrl, parsedUrl.origin).toString()
@@ -128,8 +178,8 @@ export async function loadPage(url, options = {}) {
         ...fetchOpts,
         headers: {
           ...headers,
-          ...(fetchOpts.headers || {})
-        }
+          ...(fetchOpts.headers || {}),
+        },
       })
       return res
     } catch (err) {
@@ -161,7 +211,7 @@ export async function loadPage(url, options = {}) {
       fetch(this._url, {
         method: this._method || 'GET',
         headers: { ...headers, ...this._headers },
-        body
+        body,
       }).then(async res => {
         this.status = res.status
         this.readyState = 4
@@ -179,7 +229,6 @@ export async function loadPage(url, options = {}) {
   // ─── 4. Eksekusi JS dari page ────────────────────────────
   const jsStart = Date.now()
 
-  // Ambil semua script tags
   const scripts = document.querySelectorAll('script')
   const scriptContents = []
 
@@ -195,6 +244,9 @@ export async function loadPage(url, options = {}) {
     if (src) {
       // External script — fetch dulu
       if (options.executeExternalScripts !== false) {
+        // scriptFilter: (src) => boolean — whitelist tertentu aja
+        if (options.scriptFilter && !options.scriptFilter(src)) continue
+
         try {
           const scriptUrl = src.startsWith('http')
             ? src
@@ -211,6 +263,8 @@ export async function loadPage(url, options = {}) {
       }
     } else {
       // Inline script
+      if (options.executeInlineScripts === false) continue
+
       const code = script.textContent || ''
       if (code.trim()) {
         scriptContents.push({ src: 'inline', code })
@@ -269,18 +323,68 @@ export async function loadPage(url, options = {}) {
       js: jsTime,
     },
 
-    // Helper: query langsung dari result
+    // ─── DOM Helpers ──────────────────────────────────────
+
+    // querySelector — return satu element
     select(selector) {
       return document.querySelector(selector)
     },
+
+    // querySelectorAll — return array
     selectAll(selector) {
       return document.querySelectorAll(selector)
     },
 
-    // Helper: extract JSON yang di-embed di page
-    // result.json()        → array semua JSON yang ketemu
-    // result.json('key')   → cari object yang punya key tertentu
-    // result.json(/regex/) → cari pake regex di raw script text
+    // result.text()           → semua visible text dari body
+    // result.text('h1')       → textContent dari element pertama yang match
+    // result.text('p', true)  → array textContent semua yang match
+    text(selector, all = false) {
+      if (!selector) {
+        const body = document.querySelector('body')
+        return body ? body.textContent?.trim() ?? '' : ''
+      }
+      if (all) {
+        return document.querySelectorAll(selector).map(el => el.textContent?.trim() ?? '')
+      }
+      return document.querySelector(selector)?.textContent?.trim() ?? null
+    },
+
+    // result.attr('a.download', 'href')
+    // result.attr('meta[name="description"]', 'content')
+    attr(selector, attribute) {
+      return document.querySelector(selector)?.getAttribute(attribute) ?? null
+    },
+
+    // result.meta()  → { title, description, 'og:title', 'og:image', ... }
+    meta() {
+      const result = {}
+
+      // <title>
+      const titleEl = document.querySelector('title')
+      if (titleEl) result.title = titleEl.textContent?.trim() ?? ''
+
+      // Semua <meta> tags
+      const metas = document.querySelectorAll('meta')
+      for (const meta of metas) {
+        const name = meta.getAttribute('name') || meta.getAttribute('property') || meta.getAttribute('itemprop')
+        const content = meta.getAttribute('content')
+        if (name && content !== null) {
+          result[name] = content
+        }
+      }
+
+      // Canonical URL
+      const canonical = document.querySelector('link[rel="canonical"]')
+      if (canonical) result.canonical = canonical.getAttribute('href') ?? ''
+
+      return result
+    },
+
+    // ─── JSON Helper ─────────────────────────────────────
+
+    // result.json()               → array semua JSON yang ketemu
+    // result.json('key')          → cari object yang punya key tertentu
+    // result.json(/regex/)        → cari pake regex di raw script text
     json(target) {
       const scripts = document.querySelectorAll('script')
       const found = []
@@ -289,14 +393,10 @@ export async function loadPage(url, options = {}) {
         const text = (script.textContent || '').trim()
         if (!text) continue
 
-        // Skip script yang jelas bukan JSON (panjang < 10 atau ada syntax JS)
         const looksLikeJson = text.startsWith('{') || text.startsWith('[')
-
-        // Coba beberapa pattern umum embed JSON di page
         const candidates = []
 
         if (looksLikeJson) {
-          // Pure JSON script
           candidates.push(text)
         }
 
@@ -321,11 +421,9 @@ export async function loadPage(url, options = {}) {
           try {
             const parsed = JSON.parse(candidate)
 
-            // Filter by target kalau dikasih
             if (target === undefined) {
               found.push(parsed)
             } else if (typeof target === 'string') {
-              // Cari key di top level atau satu level di dalamnya
               if (target in parsed) {
                 found.push(parsed[target])
               } else {
@@ -342,10 +440,7 @@ export async function loadPage(url, options = {}) {
         }
       }
 
-      // Kalau target dikasih, return first match atau null
       if (target !== undefined) return found[0] ?? null
-
-      // Tanpa target, return semua yang ketemu
       return found
     },
   }
