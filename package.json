@@ -12,10 +12,10 @@
   },
   "scripts": {
     "test": "node --experimental-vm-modules test/basic.test.js",
-    "test:new": "node --experimental-vm-modules test/new-apis.test.js"
+    "test:new": "node --experimental-vm-modules test/new-api.test.js"
   },
   "keywords": ["scraping", "headless", "js-engine", "dom", "lightweight", "kitsune", "puppeteer-alternative"],
-  "author": "",
+  "author": "Kaelz",
   "license": "MIT",
   "dependencies": {
     "htmlparser2": "^9.1.0",
