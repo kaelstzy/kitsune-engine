@@ -1,4 +1,4 @@
-# 🦊 Kitsune Engine
+# 🦊 Kitsune - Engine 
 
 > Lightweight JS execution engine. Load pages, run JS, get DOM. No browser needed.
 
