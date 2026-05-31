@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build / output
+dist/
+build/
+
+# Test coverage
+coverage/
+
+# Claude / AI agent artifacts
+.claude/
+CLAUDE.md
+.cursorrules
+.aider*

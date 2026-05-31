@@ -2,16 +2,9 @@
  * kitsune-engine
  * Lightweight JS execution engine
  * Load pages, run JS, get DOM. No browser needed.
- *
- * Usage:
- *   import kitsune from 'kitsune-engine'
- *   const result = await kitsune('https://example.com')
- *
- *   // atau
- *   import { load, Kitsune } from 'kitsune-engine'
  */
 
-import { loadPage } from './engine.js'
+import { loadPage, clearCache } from './engine.js'
 
 export class Kitsune {
   constructor(globalOptions = {}) {
@@ -23,12 +16,12 @@ export class Kitsune {
   }
 }
 
-// Named export
 export async function load(url, options = {}) {
   return loadPage(url, options)
 }
 
-// Default export — tinggal kitsune(url)
+export { clearCache }
+
 export default async function kitsune(url, options = {}) {
   return loadPage(url, options)
 }

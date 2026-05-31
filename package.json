@@ -1,10 +1,14 @@
 {
   "name": "kitsune-engine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lightweight JS execution engine - load pages, run JS, get DOM. No browser needed.",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
+    }
   },
   "type": "module",
   "engines": {
