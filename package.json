@@ -1,6 +1,6 @@
 {
   "name": "kitsune-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight JS execution engine - load pages, run JS, get DOM. No browser needed.",
   "main": "src/index.js",
   "exports": {
@@ -14,6 +14,11 @@
     "test": "node --experimental-vm-modules test/basic.test.js",
     "test:new": "node --experimental-vm-modules test/new-api.test.js"
   },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": ["scraping", "headless", "js-engine", "dom", "lightweight", "kitsune", "puppeteer-alternative"],
   "author": "Kaelz",
   "license": "MIT",
